@@ -316,7 +316,7 @@ static void prometheus_server_handle_request(void) {
 	uwsgi_buffer_append(response, (char *)"HTTP/1.0 200 OK\r\n", 17);
 
 	// Headers
-	uwsgi_buffer_append(response, (char *)"Content-Type: text/plain; version=0.0.4; charset=utf-8\r\n", 58);
+	uwsgi_buffer_append(response, (char *)"Content-Type: text/plain; version=0.0.4; charset=utf-8\r\n", 56);
 
 	// Content-Length
 	uwsgi_buffer_append(response, (char *)"Content-Length: ", 16);
@@ -486,8 +486,12 @@ static void metrics_prometheus_init(void) {
  */
 static void metrics_prometheus_post_init(void) {
 	// Only initialize server if we're the master process
-	if (uwsgi.master_process && ump_config.server_address) {
-		prometheus_server_init();
+	if (ump_config.server_address) {
+		if (uwsgi.master_process) {
+			prometheus_server_init();
+		} else {
+			uwsgi_log("[prometheus] ERROR: dedicated server requires master mode. Add 'master = true' to your config.\n");
+		}
 	}
 }
 
@@ -495,8 +499,8 @@ struct uwsgi_plugin metrics_prometheus_plugin = {
 	.name = "metrics_prometheus",
 	.options = metrics_prometheus_options,
 	.on_load = metrics_prometheus_init,
-	.post_init = metrics_prometheus_post_init, 
-	.master_cycle = prometheus_master_cycle,  
+	.post_init = metrics_prometheus_post_init,
+	.master_cycle = prometheus_master_cycle,
 };
 
 #else
