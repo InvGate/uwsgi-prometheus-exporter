@@ -195,11 +195,11 @@ echo ""
 info "Starting uWSGI with route handler configuration..."
 ./uwsgi --ini plugins/metrics_prometheus/t/route_handler.ini > /tmp/uwsgi_route.log 2>&1 &
 UWSGI_PID=$!
-
+echo $UWSGI_PID
 info "Waiting for server to start..."
-sleep 2
-
-run_test "SIerver is running"
+sleep 5
+echo `ps -p $UWSGI_PID`
+run_test "Server is running"
 if ps -p $UWSGI_PID > /dev/null; then
     success "uWSGI process is running (PID: $UWSGI_PID)"
 else
@@ -265,7 +265,7 @@ info "Starting uWSGI with dedicated server configuration..."
 UWSGI_PID=$!
 
 info "Waiting for server to start..."
-sleep 3
+sleep 5
 
 run_test "Server is running"
 if ps -p $UWSGI_PID > /dev/null; then
