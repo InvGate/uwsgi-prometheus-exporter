@@ -121,7 +121,7 @@ jobs:
         timeout 5 ./uwsgi \
           --plugin ./metrics_prometheus_plugin.so \
           --enable-metrics \
-          --http :8888 \
+          --http-socket :8888 \
           --wsgi-file plugins/metrics_prometheus/t/test_app.py \
           --processes 1 \
           --route '^/metrics$ prometheus-metrics:' &
