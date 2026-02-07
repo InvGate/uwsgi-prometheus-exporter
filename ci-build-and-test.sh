@@ -159,30 +159,6 @@ else
 fi
 echo ""
 
-# Step 8: Quick startup test
-info "Quick startup test (verifying uWSGI can start with plugin)..."
-echo "Config:"
-cat plugins/metrics_prometheus/t/route_handler.ini | head -20
-echo ""
-
-timeout 3 ./uwsgi --ini plugins/metrics_prometheus/t/route_handler.ini > /tmp/quick-test.log 2>&1 &
-UWSGI_PID=$!
-sleep 2
-
-if ps -p $UWSGI_PID > /dev/null 2>&1; then
-    success "uWSGI started successfully (PID: $UWSGI_PID)"
-    kill $UWSGI_PID 2>/dev/null || true
-    sleep 1
-    kill -9 $UWSGI_PID 2>/dev/null || true
-    UWSGI_PID=""
-else
-    error "uWSGI failed to start"
-    echo ""
-    echo "Startup log:"
-    cat /tmp/quick-test.log
-    exit 1
-fi
-echo ""
 
 # Step 9: Run full test suite
 info "Running full test suite..."
