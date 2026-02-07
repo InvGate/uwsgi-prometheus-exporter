@@ -50,9 +50,58 @@ static struct uwsgi_option metrics_prometheus_options[] = {
 
 /*
  * ===========================================================================
- * UTILITY FUNCTIONS (same as before)
+ * UTILITY FUNCTIONS
  * ===========================================================================
  */
+
+/*
+ * Simple set to track seen metric names (for HELP/TYPE deduplication)
+ */
+struct seen_metric_name {
+	char *name;
+	size_t name_len;
+	struct seen_metric_name *next;
+};
+
+static struct seen_metric_name *seen_names_create(void) {
+	return NULL;  // Empty list
+}
+
+static int seen_names_contains(struct seen_metric_name *head, const char *name, size_t name_len) {
+	struct seen_metric_name *current = head;
+	while (current) {
+		if (current->name_len == name_len && memcmp(current->name, name, name_len) == 0) {
+			return 1;  // Found
+		}
+		current = current->next;
+	}
+	return 0;  // Not found
+}
+
+static struct seen_metric_name *seen_names_add(struct seen_metric_name *head, const char *name, size_t name_len) {
+	struct seen_metric_name *node = uwsgi_malloc(sizeof(struct seen_metric_name));
+	if (!node) return head;
+
+	node->name = uwsgi_malloc(name_len);
+	if (!node->name) {
+		free(node);
+		return head;
+	}
+
+	memcpy(node->name, name, name_len);
+	node->name_len = name_len;
+	node->next = head;
+	return node;
+}
+
+static void seen_names_destroy(struct seen_metric_name *head) {
+	while (head) {
+		struct seen_metric_name *next = head->next;
+		free(head->name);
+		free(head);
+		head = next;
+	}
+}
 
 __attribute__((unused))
 static int prometheus_escape_string(struct uwsgi_buffer *ub, const char *str, size_t len) {
@@ -156,12 +205,16 @@ static struct uwsgi_buffer *prometheus_generate_metrics(void) {
 		return NULL;
 	}
 
+	// Track seen metric names to avoid duplicate HELP/TYPE comments
+	struct seen_metric_name *seen_names = seen_names_create();
+
 	const char *prefix = ump_config.prefix ? ump_config.prefix : "uwsgi_";
 
 	if (!uwsgi.has_metrics || !uwsgi.metrics ) {
 		uwsgi_log("[prometheus] No metrics available (metrics=%p)\n", uwsgi.metrics);
 		uwsgi_buffer_destroy(name_buf);
 		uwsgi_buffer_destroy(labels_buf);
+		seen_names_destroy(seen_names);
 		return ub;
 	}
 
@@ -188,34 +241,50 @@ static struct uwsgi_buffer *prometheus_generate_metrics(void) {
 			continue;
 		}
 
-		if (ump_config.include_help) {
-			if (uwsgi_buffer_append(ub, (char *)"# HELP ", 7)) goto error;
-			if (uwsgi_buffer_append(ub, name_buf->buf, name_buf->pos)) goto error;
-			if (uwsgi_buffer_append(ub, (char *)" ", 1)) goto error;
-			if (uwsgi_buffer_append(ub, um->name, um->name_len)) goto error;
-			if (uwsgi_buffer_append(ub, (char *)"\n", 1)) goto error;
+		// Append _total suffix for counter metrics (Prometheus best practice)
+		if (um->type == UWSGI_METRIC_COUNTER) {
+			if (uwsgi_buffer_append(name_buf, (char *)"_total", 6)) {
+				uwsgi_log("[prometheus] Failed to append _total suffix\n");
+				um = um->next;
+				continue;
+			}
 		}
 
-		if (ump_config.include_type) {
-			if (uwsgi_buffer_append(ub, (char *)"# TYPE ", 7)) goto error;
-			if (uwsgi_buffer_append(ub, name_buf->buf, name_buf->pos)) goto error;
-
-			const char *prom_type = "untyped";
-			switch (um->type) {
-				case UWSGI_METRIC_COUNTER:
-					prom_type = "counter";
-					break;
-				case UWSGI_METRIC_GAUGE:
-					prom_type = "gauge";
-					break;
-				case UWSGI_METRIC_ABSOLUTE:
-					prom_type = "gauge";
-					break;
+		// Only emit HELP and TYPE if we haven't seen this metric name before
+		int is_new_metric = !seen_names_contains(seen_names, name_buf->buf, name_buf->pos);
+		if (is_new_metric) {
+			if (ump_config.include_help) {
+				if (uwsgi_buffer_append(ub, (char *)"# HELP ", 7)) goto error;
+				if (uwsgi_buffer_append(ub, name_buf->buf, name_buf->pos)) goto error;
+				if (uwsgi_buffer_append(ub, (char *)" ", 1)) goto error;
+				if (uwsgi_buffer_append(ub, um->name, um->name_len)) goto error;
+				if (uwsgi_buffer_append(ub, (char *)"\n", 1)) goto error;
 			}
 
-			if (uwsgi_buffer_append(ub, (char *)" ", 1)) goto error;
-			if (uwsgi_buffer_append(ub, (char *)prom_type, strlen(prom_type))) goto error;
-			if (uwsgi_buffer_append(ub, (char *)"\n", 1)) goto error;
+			if (ump_config.include_type) {
+				if (uwsgi_buffer_append(ub, (char *)"# TYPE ", 7)) goto error;
+				if (uwsgi_buffer_append(ub, name_buf->buf, name_buf->pos)) goto error;
+
+				const char *prom_type = "untyped";
+				switch (um->type) {
+					case UWSGI_METRIC_COUNTER:
+						prom_type = "counter";
+						break;
+					case UWSGI_METRIC_GAUGE:
+						prom_type = "gauge";
+						break;
+					case UWSGI_METRIC_ABSOLUTE:
+						prom_type = "gauge";
+						break;
+				}
+
+				if (uwsgi_buffer_append(ub, (char *)" ", 1)) goto error;
+				if (uwsgi_buffer_append(ub, (char *)prom_type, strlen(prom_type))) goto error;
+				if (uwsgi_buffer_append(ub, (char *)"\n", 1)) goto error;
+			}
+
+			// Mark this metric name as seen
+			seen_names = seen_names_add(seen_names, name_buf->buf, name_buf->pos);
 		}
 
 		if (uwsgi_buffer_append(ub, name_buf->buf, name_buf->pos)) goto error;
@@ -240,12 +309,14 @@ static struct uwsgi_buffer *prometheus_generate_metrics(void) {
 
 	uwsgi_buffer_destroy(name_buf);
 	uwsgi_buffer_destroy(labels_buf);
+	seen_names_destroy(seen_names);
 	return ub;
 
 error:
 	uwsgi_buffer_destroy(name_buf);
 	uwsgi_buffer_destroy(labels_buf);
 	uwsgi_buffer_destroy(ub);
+	seen_names_destroy(seen_names);
 	return NULL;
 }
 

@@ -279,18 +279,18 @@ run_test "Application endpoint responds"
 validate_http_response "http://127.0.0.1:8081/" "200"
 
 run_test "Dedicated metrics server responds"
-validate_http_response "http://127.0.0.1:9090" "200"
+validate_http_response "http://127.0.0.1:9091" "200"
 
 run_test "Metrics server has correct Content-Type"
-validate_content_type "http://127.0.0.1:9090"
+validate_content_type "http://127.0.0.1:9091"
 
 sleep 0.5
 
 run_test "Metrics output is valid Prometheus format"
-validate_prometheus_format "http://127.0.0.1:9090" "/tmp/metrics_server.txt"
+validate_prometheus_format "http://127.0.0.1:9091" "/tmp/metrics_server.txt"
 
 run_test "Metrics work on any path"
-validate_http_response "http://127.0.0.1:9090/any/path" "200"
+validate_http_response "http://127.0.0.1:9091/any/path" "200"
 
 # Generate traffic and check metrics update
 generate_traffic "http://127.0.0.1:8081/" 10
@@ -298,7 +298,7 @@ generate_traffic "http://127.0.0.1:8081/" 10
 sleep 1
 
 run_test "Metrics update after traffic"
-curl --max-time 5 -s "http://127.0.0.1:9090" > "/tmp/metrics_server_after.txt"
+curl --max-time 5 -s "http://127.0.0.1:9091" > "/tmp/metrics_server_after.txt"
 if ! diff -q "/tmp/metrics_server.txt" "/tmp/metrics_server_after.txt" > /dev/null; then
     success "Metrics changed after traffic"
 else

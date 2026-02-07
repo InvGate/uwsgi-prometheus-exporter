@@ -72,18 +72,22 @@ jobs:
         echo "Plugin files copied:"
         ls -la uwsgi-source/plugins/metrics_prometheus/
 
-    - name: Build uWSGI core
+    - name: Build uWSGI with Python support
       run: |
         cd uwsgi-source
-        python3 uwsgiconfig.py --build core
+        # Build with default profile (includes Python, routing, metrics)
+        python3 uwsgiconfig.py --build
         echo "=== uWSGI binary built ==="
         ./uwsgi --version
         echo ""
+        echo "=== Checking for Python/WSGI support ==="
+        ./uwsgi --help | grep -i wsgi-file || echo "Warning: wsgi-file option not found"
+        echo ""
         echo "=== Checking for metrics support ==="
-        ./uwsgi --help | grep -i metrics || echo "Warning: metrics options not found in help"
+        ./uwsgi --help | grep -i "enable-metrics" || echo "Warning: metrics options not found in help"
         echo ""
         echo "=== Checking for routing support ==="
-        ./uwsgi --help | grep -i route || echo "Warning: routing options not found in help"
+        ./uwsgi --help | grep -i "route " || echo "Warning: routing options not found in help"
 
     - name: Build Prometheus plugin
       run: |
