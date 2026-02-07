@@ -1,4 +1,4 @@
-name: Build and Test uWSGI Prometheus Plugin
+name: Build and Test
 
 on:
   push:
@@ -22,10 +22,8 @@ jobs:
     steps:
     - name: Checkout plugin repository
       uses: actions/checkout@v4
-      with:
-        path: plugin-source
 
-    - name: Install build dependencies
+    - name: Install system dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
@@ -40,7 +38,7 @@ jobs:
           curl \
           wget
 
-    - name: Install promtool for test validation
+    - name: Install promtool for Prometheus validation
       run: |
         PROMTOOL_VERSION="2.48.1"
         wget -q https://github.com/prometheus/prometheus/releases/download/v${PROMTOOL_VERSION}/prometheus-${PROMTOOL_VERSION}.linux-amd64.tar.gz
@@ -48,205 +46,29 @@ jobs:
         sudo cp prometheus-${PROMTOOL_VERSION}.linux-amd64/promtool /usr/local/bin/
         promtool --version
 
-    - name: Clone uWSGI source
+    - name: Run CI build and test script
       run: |
-        if [ "${{ env.UWSGI_VERSION }}" = "latest" ]; then
-          echo "Cloning latest uWSGI from master branch"
-          git clone --depth 1 https://github.com/unbit/uwsgi.git uwsgi-source
-        else
-          echo "Cloning uWSGI version ${{ env.UWSGI_VERSION }}"
-          git clone --depth 1 --branch ${{ env.UWSGI_VERSION }} https://github.com/unbit/uwsgi.git uwsgi-source
-        fi
-        cd uwsgi-source
-        echo "uWSGI commit: $(git rev-parse HEAD)"
-        echo "uWSGI describe: $(git describe --tags --always)"
+        export PLUGIN_DIR="${GITHUB_WORKSPACE}"
+        export WORK_DIR="${GITHUB_WORKSPACE}/build"
+        export UWSGI_VERSION="${{ env.UWSGI_VERSION }}"
+        mkdir -p "${WORK_DIR}"
 
-    - name: Copy plugin files to uWSGI plugins directory
-      run: |
-        mkdir -p uwsgi-source/plugins/metrics_prometheus
-        cp plugin-source/plugin.c uwsgi-source/plugins/metrics_prometheus/
-        cp plugin-source/uwsgiplugin.py uwsgi-source/plugins/metrics_prometheus/
-        cp plugin-source/README.md uwsgi-source/plugins/metrics_prometheus/
-        cp plugin-source/PLUGIN_README.md uwsgi-source/plugins/metrics_prometheus/
-        cp -r plugin-source/t uwsgi-source/plugins/metrics_prometheus/
-        echo "Plugin files copied:"
-        ls -la uwsgi-source/plugins/metrics_prometheus/
-
-    - name: Build uWSGI with Python support
-      run: |
-        cd uwsgi-source
-        # Build with default profile (includes Python, routing, metrics)
-        python3 uwsgiconfig.py --build
-        echo "=== uWSGI binary built ==="
-        ./uwsgi --version
-        echo ""
-        echo "=== Checking for Python/WSGI support ==="
-        ./uwsgi --help | grep -i wsgi-file || echo "Warning: wsgi-file option not found"
-        echo ""
-        echo "=== Checking for metrics support ==="
-        ./uwsgi --help | grep -i "enable-metrics" || echo "Warning: metrics options not found in help"
-        echo ""
-        echo "=== Checking for routing support ==="
-        ./uwsgi --help | grep -i "route " || echo "Warning: routing options not found in help"
-
-    - name: Build Prometheus plugin
-      run: |
-        cd uwsgi-source
-        python3 uwsgiconfig.py --plugin plugins/metrics_prometheus
-        echo "Plugin built successfully:"
-        ls -lh metrics_prometheus_plugin.so
-        file metrics_prometheus_plugin.so
-
-    - name: Verify plugin location and structure
-      run: |
-        cd uwsgi-source
-        echo "=== Current directory ==="
-        pwd
-        echo ""
-        echo "=== Plugin file location ==="
-        ls -lh metrics_prometheus_plugin.so
-        echo ""
-        echo "=== Test configuration files ==="
-        ls -lh plugins/metrics_prometheus/t/*.ini
-        echo ""
-        echo "=== Test script ==="
-        ls -lh plugins/metrics_prometheus/t/test.sh
-
-    - name: Rename plugin for artifact
-      run: |
-        cd uwsgi-source
-        cp metrics_prometheus_plugin.so metrics_prometheus.so
-        ls -lh metrics_prometheus.so
-
-    - name: Run plugin tests with verbose output
-      run: |
-        cd uwsgi-source
-        chmod +x plugins/metrics_prometheus/t/test.sh
-        echo "=== Starting test suite ==="
-        echo "Working directory: $(pwd)"
-        echo "Plugin location: $(ls -lh metrics_prometheus_plugin.so)"
-        echo "uWSGI binary: $(ls -lh uwsgi)"
-        echo "Test app: $(ls -lh plugins/metrics_prometheus/t/test_app.py)"
-        echo ""
-        echo "=== Environment ==="
-        echo "PATH: $PATH"
-        echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-not set}"
-        echo ""
-        # Run tests and show output in real-time
-        plugins/metrics_prometheus/t/test.sh 2>&1 | tee /tmp/test_output.log
-        TEST_EXIT_CODE=${PIPEFAIL[0]:-$?}
-        echo ""
-        echo "Test exit code: $TEST_EXIT_CODE"
-        exit $TEST_EXIT_CODE
-      continue-on-error: true
-
-    - name: Display uWSGI logs (always runs)
-      if: always()
-      run: |
-        echo "========================================="
-        echo "DEBUGGING INFORMATION"
-        echo "========================================="
-        echo ""
-        echo "=== uWSGI Route Handler Logs ==="
-        if [ -f /tmp/uwsgi_route.log ]; then
-          echo "--- Full log content ---"
-          cat /tmp/uwsgi_route.log
-          echo ""
-          echo "--- Log file size: $(wc -l /tmp/uwsgi_route.log | cut -d' ' -f1) lines ---"
-        else
-          echo "❌ Route handler log not found at /tmp/uwsgi_route.log"
-        fi
-        echo ""
-        echo "=== uWSGI Dedicated Server Logs ==="
-        if [ -f /tmp/uwsgi_server.log ]; then
-          echo "--- Full log content ---"
-          cat /tmp/uwsgi_server.log
-          echo ""
-          echo "--- Log file size: $(wc -l /tmp/uwsgi_server.log | cut -d' ' -f1) lines ---"
-        else
-          echo "❌ Dedicated server log not found at /tmp/uwsgi_server.log"
-        fi
-        echo ""
-        echo "=== Test Output Log ==="
-        if [ -f /tmp/test_output.log ]; then
-          tail -50 /tmp/test_output.log
-        else
-          echo "❌ Test output log not found"
-        fi
-        echo ""
-        echo "=== Curl Error Logs ==="
-        if [ -f /tmp/curl_error.log ]; then
-          cat /tmp/curl_error.log
-        else
-          echo "No curl errors logged"
-        fi
-        echo ""
-        echo "=== Test Metrics Outputs ==="
-        echo "Route handler metrics:"
-        if [ -f /tmp/metrics_route.txt ]; then
-          echo "First 30 lines:"
-          head -30 /tmp/metrics_route.txt
-        else
-          echo "❌ Not found"
-        fi
-        echo ""
-        echo "Dedicated server metrics:"
-        if [ -f /tmp/metrics_server.txt ]; then
-          echo "First 30 lines:"
-          head -30 /tmp/metrics_server.txt
-        else
-          echo "❌ Not found"
-        fi
-        echo ""
-        echo "=== Port Usage ==="
-        netstat -tuln | grep -E '8080|8081|9090' || echo "Test ports (8080, 8081, 9090) not in use"
-        echo ""
-        echo "=== Running Processes ==="
-        ps aux | grep -E 'uwsgi|test' | grep -v grep || echo "No uwsgi or test processes found"
-        echo ""
-        echo "=== Plugin File Check ==="
-        cd uwsgi-source 2>/dev/null || cd .
-        if [ -f metrics_prometheus_plugin.so ]; then
-          ls -lh metrics_prometheus_plugin.so
-          file metrics_prometheus_plugin.so
-          ldd metrics_prometheus_plugin.so || echo "ldd failed"
-        else
-          echo "❌ Plugin file not found in $(pwd)"
-        fi
-        echo ""
-        echo "=== uWSGI Binary Check ==="
-        if [ -f uwsgi ]; then
-          ls -lh uwsgi
-          ldd uwsgi | head -20
-        else
-          echo "❌ uWSGI binary not found in $(pwd)"
-        fi
-
-    - name: Check test results
-      run: |
-        if [ -f /tmp/test_output.log ]; then
-          if grep -q "All tests passed" /tmp/test_output.log; then
-            echo "✅ Tests passed successfully"
-            exit 0
-          else
-            echo "❌ Tests failed - check logs above"
-            exit 1
-          fi
-        else
-          echo "❌ Test output not found"
-          exit 1
-        fi
+        ./ci-build-and-test.sh
 
     - name: Upload compiled plugin
       uses: actions/upload-artifact@v4
       with:
         name: metrics_prometheus-plugin
-        path: uwsgi-source/metrics_prometheus.so
+        path: build/uwsgi/metrics_prometheus.so
         if-no-files-found: error
 
     - name: Display plugin info
       run: |
-        cd uwsgi-source
-        echo "Plugin size: $(du -h metrics_prometheus.so | cut -f1)"
-        echo "Plugin type: $(file metrics_prometheus.so)"
-        echo "Build artifacts ready for download"
+        cd build/uwsgi
+        echo "✅ Build successful!"
+        echo ""
+        echo "Plugin: metrics_prometheus.so"
+        echo "Size: $(du -h metrics_prometheus.so | cut -f1)"
+        echo "Type: $(file metrics_prometheus.so)"
+        echo ""
+        echo "Download the artifact from the Actions tab to use this plugin."

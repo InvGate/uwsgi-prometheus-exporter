@@ -199,7 +199,7 @@ UWSGI_PID=$!
 info "Waiting for server to start..."
 sleep 2
 
-run_test "Server is running"
+run_test "SIerver is running"
 if ps -p $UWSGI_PID > /dev/null; then
     success "uWSGI process is running (PID: $UWSGI_PID)"
 else
@@ -208,16 +208,16 @@ else
 fi
 
 run_test "Application endpoint responds"
-validate_http_response "http://127.0.0.1:8080/" "200"
+validate_http_response "http://127.0.0.1:8082/" "200"
 
 run_test "Metrics endpoint responds"
-validate_http_response "http://127.0.0.1:8080/metrics" "200"
+validate_http_response "http://127.0.0.1:8082/metrics" "200"
 
 run_test "Metrics endpoint has correct Content-Type"
-validate_content_type "http://127.0.0.1:8080/metrics"
+validate_content_type "http://127.0.0.1:8082/metrics"
 
 run_test "Metrics output is valid Prometheus format"
-validate_prometheus_format "http://127.0.0.1:8080/metrics" "/tmp/metrics_route.txt"
+validate_prometheus_format "http://127.0.0.1:8082/metrics" "/tmp/metrics_route.txt"
 
 run_test "Output contains uwsgi prefix"
 if grep -q "^uwsgi_" "/tmp/metrics_route.txt"; then
@@ -227,12 +227,12 @@ else
 fi
 
 # Generate traffic and check metrics update
-generate_traffic "http://127.0.0.1:8080/" 10
+generate_traffic "http://127.0.0.1:8082/" 10
 
 sleep 1
 
 run_test "Metrics update after traffic"
-curl --max-time 5 -s "http://127.0.0.1:8080/metrics" > "/tmp/metrics_route_after.txt"
+curl --max-time 5 -s "http://127.0.0.1:8082/metrics" > "/tmp/metrics_route_after.txt"
 if ! diff -q "/tmp/metrics_route.txt" "/tmp/metrics_route_after.txt" > /dev/null; then
     success "Metrics changed after traffic"
 else
