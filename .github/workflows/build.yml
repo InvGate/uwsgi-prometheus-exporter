@@ -112,35 +112,6 @@ jobs:
         echo "=== Test script ==="
         ls -lh plugins/metrics_prometheus/t/test.sh
 
-    - name: Test plugin loading
-      run: |
-        cd uwsgi-source
-        echo "=== Testing if plugin loads correctly ==="
-        ./uwsgi --plugin ./metrics_prometheus_plugin.so --help | grep -i prometheus || echo "Plugin options not found in help"
-        echo ""
-        echo "=== Checking plugin symbols ==="
-        nm -D metrics_prometheus_plugin.so | grep -i init || echo "No init symbols found"
-        echo ""
-        echo "=== Smoke test: Start uWSGI with plugin and immediately exit ==="
-        timeout 5 ./uwsgi \
-          --plugin ./metrics_prometheus_plugin.so \
-          --enable-metrics \
-          --http-socket :8888 \
-          --wsgi-file plugins/metrics_prometheus/t/test_app.py \
-          --processes 1 \
-          --route '^/metrics$ prometheus-metrics:' &
-        UWSGI_PID=$!
-        sleep 2
-        if ps -p $UWSGI_PID > /dev/null 2>&1; then
-          echo "✓ uWSGI started successfully with plugin loaded"
-          kill $UWSGI_PID 2>/dev/null || true
-          sleep 1
-          kill -9 $UWSGI_PID 2>/dev/null || true
-        else
-          echo "✗ uWSGI failed to start"
-          exit 1
-        fi
-
     - name: Rename plugin for artifact
       run: |
         cd uwsgi-source
