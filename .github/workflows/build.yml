@@ -1,0 +1,85 @@
+name: Build Plugin
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+    inputs:
+      uwsgi_version:
+        description: 'uWSGI version/tag to build against (e.g., 2.0.23 or "latest")'
+        required: false
+        default: 'latest'
+
+env:
+  UWSGI_VERSION: ${{ github.event.inputs.uwsgi_version || 'latest' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout plugin repository
+      uses: actions/checkout@v4
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          python3 \
+          python3-dev \
+          libpcre3-dev \
+          libssl-dev \
+          zlib1g-dev
+
+    - name: Clone uWSGI source
+      run: |
+        if [ "${{ env.UWSGI_VERSION }}" = "latest" ]; then
+          git clone --depth 1 https://github.com/unbit/uwsgi.git
+        else
+          git clone --depth 1 --branch ${{ env.UWSGI_VERSION }} https://github.com/unbit/uwsgi.git
+        fi
+        cd uwsgi
+        echo "uWSGI commit: $(git rev-parse --short HEAD)"
+
+    - name: Copy plugin files
+      run: |
+        mkdir -p uwsgi/plugins/metrics_prometheus
+        cp plugin.c uwsgi/plugins/metrics_prometheus/
+        cp uwsgiplugin.py uwsgi/plugins/metrics_prometheus/
+        cp -r t uwsgi/plugins/metrics_prometheus/
+
+    - name: Build uWSGI
+      run: |
+        cd uwsgi
+        python3 uwsgiconfig.py --build
+        ./uwsgi --version
+
+    - name: Build plugin
+      run: |
+        cd uwsgi
+        python3 uwsgiconfig.py --plugin plugins/metrics_prometheus
+        ls -lh metrics_prometheus_plugin.so
+
+        # Rename for artifact
+        cp metrics_prometheus_plugin.so metrics_prometheus.so
+
+    - name: Upload plugin artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: metrics_prometheus-plugin
+        path: uwsgi/metrics_prometheus.so
+        if-no-files-found: error
+
+    - name: Build summary
+      run: |
+        cd uwsgi
+        echo "✅ Plugin built successfully!"
+        echo ""
+        echo "📦 Artifact: metrics_prometheus.so"
+        echo "📏 Size: $(du -h metrics_prometheus.so | cut -f1)"
+        echo "🔧 Type: $(file metrics_prometheus.so)"
+        echo ""
+        echo "Download from the Actions tab → Artifacts section"

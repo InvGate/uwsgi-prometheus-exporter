@@ -1,0 +1,29 @@
+# IDE and Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+*.so
+*.o
+*.pyc
+__pycache__/
+
+# Test outputs
+/tmp/
+*.log
+
+# Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local development
+.env
+.envrc

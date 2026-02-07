@@ -195,10 +195,10 @@ echo ""
 info "Starting uWSGI with route handler configuration..."
 ./uwsgi --ini plugins/metrics_prometheus/t/route_handler.ini > /tmp/uwsgi_route.log 2>&1 &
 UWSGI_PID=$!
-
+echo $UWSGI_PID
 info "Waiting for server to start..."
-sleep 2
-
+sleep 5
+echo `ps -p $UWSGI_PID`
 run_test "Server is running"
 if ps -p $UWSGI_PID > /dev/null; then
     success "uWSGI process is running (PID: $UWSGI_PID)"
@@ -208,16 +208,16 @@ else
 fi
 
 run_test "Application endpoint responds"
-validate_http_response "http://127.0.0.1:8080/" "200"
+validate_http_response "http://127.0.0.1:8082/" "200"
 
 run_test "Metrics endpoint responds"
-validate_http_response "http://127.0.0.1:8080/metrics" "200"
+validate_http_response "http://127.0.0.1:8082/metrics" "200"
 
 run_test "Metrics endpoint has correct Content-Type"
-validate_content_type "http://127.0.0.1:8080/metrics"
+validate_content_type "http://127.0.0.1:8082/metrics"
 
 run_test "Metrics output is valid Prometheus format"
-validate_prometheus_format "http://127.0.0.1:8080/metrics" "/tmp/metrics_route.txt"
+validate_prometheus_format "http://127.0.0.1:8082/metrics" "/tmp/metrics_route.txt"
 
 run_test "Output contains uwsgi prefix"
 if grep -q "^uwsgi_" "/tmp/metrics_route.txt"; then
@@ -227,12 +227,12 @@ else
 fi
 
 # Generate traffic and check metrics update
-generate_traffic "http://127.0.0.1:8080/" 10
+generate_traffic "http://127.0.0.1:8082/" 10
 
 sleep 1
 
 run_test "Metrics update after traffic"
-curl --max-time 5 -s "http://127.0.0.1:8080/metrics" > "/tmp/metrics_route_after.txt"
+curl --max-time 5 -s "http://127.0.0.1:8082/metrics" > "/tmp/metrics_route_after.txt"
 if ! diff -q "/tmp/metrics_route.txt" "/tmp/metrics_route_after.txt" > /dev/null; then
     success "Metrics changed after traffic"
 else
@@ -265,7 +265,7 @@ info "Starting uWSGI with dedicated server configuration..."
 UWSGI_PID=$!
 
 info "Waiting for server to start..."
-sleep 3
+sleep 5
 
 run_test "Server is running"
 if ps -p $UWSGI_PID > /dev/null; then
@@ -279,18 +279,18 @@ run_test "Application endpoint responds"
 validate_http_response "http://127.0.0.1:8081/" "200"
 
 run_test "Dedicated metrics server responds"
-validate_http_response "http://127.0.0.1:9090" "200"
+validate_http_response "http://127.0.0.1:9091" "200"
 
 run_test "Metrics server has correct Content-Type"
-validate_content_type "http://127.0.0.1:9090"
+validate_content_type "http://127.0.0.1:9091"
 
 sleep 0.5
 
 run_test "Metrics output is valid Prometheus format"
-validate_prometheus_format "http://127.0.0.1:9090" "/tmp/metrics_server.txt"
+validate_prometheus_format "http://127.0.0.1:9091" "/tmp/metrics_server.txt"
 
 run_test "Metrics work on any path"
-validate_http_response "http://127.0.0.1:9090/any/path" "200"
+validate_http_response "http://127.0.0.1:9091/any/path" "200"
 
 # Generate traffic and check metrics update
 generate_traffic "http://127.0.0.1:8081/" 10
@@ -298,7 +298,7 @@ generate_traffic "http://127.0.0.1:8081/" 10
 sleep 1
 
 run_test "Metrics update after traffic"
-curl --max-time 5 -s "http://127.0.0.1:9090" > "/tmp/metrics_server_after.txt"
+curl --max-time 5 -s "http://127.0.0.1:9091" > "/tmp/metrics_server_after.txt"
 if ! diff -q "/tmp/metrics_server.txt" "/tmp/metrics_server_after.txt" > /dev/null; then
     success "Metrics changed after traffic"
 else
