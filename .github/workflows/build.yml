@@ -1,4 +1,4 @@
-name: Build and Test
+name: Build Plugin
 
 on:
   push:
@@ -23,7 +23,7 @@ jobs:
     - name: Checkout plugin repository
       uses: actions/checkout@v4
 
-    - name: Install system dependencies
+    - name: Install build dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
@@ -32,43 +32,54 @@ jobs:
           python3-dev \
           libpcre3-dev \
           libssl-dev \
-          zlib1g-dev \
-          libxml2-dev \
-          libyaml-dev \
-          curl \
-          wget
+          zlib1g-dev
 
-    - name: Install promtool for Prometheus validation
+    - name: Clone uWSGI source
       run: |
-        PROMTOOL_VERSION="2.48.1"
-        wget -q https://github.com/prometheus/prometheus/releases/download/v${PROMTOOL_VERSION}/prometheus-${PROMTOOL_VERSION}.linux-amd64.tar.gz
-        tar xzf prometheus-${PROMTOOL_VERSION}.linux-amd64.tar.gz
-        sudo cp prometheus-${PROMTOOL_VERSION}.linux-amd64/promtool /usr/local/bin/
-        promtool --version
+        if [ "${{ env.UWSGI_VERSION }}" = "latest" ]; then
+          git clone --depth 1 https://github.com/unbit/uwsgi.git
+        else
+          git clone --depth 1 --branch ${{ env.UWSGI_VERSION }} https://github.com/unbit/uwsgi.git
+        fi
+        cd uwsgi
+        echo "uWSGI commit: $(git rev-parse --short HEAD)"
 
-    - name: Run CI build and test script
+    - name: Copy plugin files
       run: |
-        export PLUGIN_DIR="${GITHUB_WORKSPACE}"
-        export WORK_DIR="${GITHUB_WORKSPACE}/build"
-        export UWSGI_VERSION="${{ env.UWSGI_VERSION }}"
-        mkdir -p "${WORK_DIR}"
+        mkdir -p uwsgi/plugins/metrics_prometheus
+        cp plugin.c uwsgi/plugins/metrics_prometheus/
+        cp uwsgiplugin.py uwsgi/plugins/metrics_prometheus/
+        cp -r t uwsgi/plugins/metrics_prometheus/
 
-        ./ci-build-and-test.sh
+    - name: Build uWSGI
+      run: |
+        cd uwsgi
+        python3 uwsgiconfig.py --build
+        ./uwsgi --version
 
-    - name: Upload compiled plugin
+    - name: Build plugin
+      run: |
+        cd uwsgi
+        python3 uwsgiconfig.py --plugin plugins/metrics_prometheus
+        ls -lh metrics_prometheus_plugin.so
+
+        # Rename for artifact
+        cp metrics_prometheus_plugin.so metrics_prometheus.so
+
+    - name: Upload plugin artifact
       uses: actions/upload-artifact@v4
       with:
         name: metrics_prometheus-plugin
-        path: build/uwsgi/metrics_prometheus.so
+        path: uwsgi/metrics_prometheus.so
         if-no-files-found: error
 
-    - name: Display plugin info
+    - name: Build summary
       run: |
-        cd build/uwsgi
-        echo "✅ Build successful!"
+        cd uwsgi
+        echo "✅ Plugin built successfully!"
         echo ""
-        echo "Plugin: metrics_prometheus.so"
-        echo "Size: $(du -h metrics_prometheus.so | cut -f1)"
-        echo "Type: $(file metrics_prometheus.so)"
+        echo "📦 Artifact: metrics_prometheus.so"
+        echo "📏 Size: $(du -h metrics_prometheus.so | cut -f1)"
+        echo "🔧 Type: $(file metrics_prometheus.so)"
         echo ""
-        echo "Download the artifact from the Actions tab to use this plugin."
+        echo "Download from the Actions tab → Artifacts section"
