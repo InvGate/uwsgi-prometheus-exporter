@@ -138,10 +138,10 @@ jobs:
         echo ""
         echo "Test exit code: $TEST_EXIT_CODE"
         exit $TEST_EXIT_CODE
-      continue-on-error: false
+      continue-on-error: true
 
-    - name: Display uWSGI logs on failure
-      if: failure()
+    - name: Display uWSGI logs (always runs)
+      if: always()
       run: |
         echo "========================================="
         echo "DEBUGGING INFORMATION"
@@ -220,6 +220,21 @@ jobs:
           ldd uwsgi | head -20
         else
           echo "❌ uWSGI binary not found in $(pwd)"
+        fi
+
+    - name: Check test results
+      run: |
+        if [ -f /tmp/test_output.log ]; then
+          if grep -q "All tests passed" /tmp/test_output.log; then
+            echo "✅ Tests passed successfully"
+            exit 0
+          else
+            echo "❌ Tests failed - check logs above"
+            exit 1
+          fi
+        else
+          echo "❌ Test output not found"
+          exit 1
         fi
 
     - name: Upload compiled plugin
