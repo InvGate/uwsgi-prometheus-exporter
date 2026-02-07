@@ -1,0 +1,114 @@
+name: Build and Test uWSGI Prometheus Plugin
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+    inputs:
+      uwsgi_version:
+        description: 'uWSGI version/tag to build against (e.g., 2.0.23 or "latest")'
+        required: false
+        default: 'latest'
+
+env:
+  UWSGI_VERSION: ${{ github.event.inputs.uwsgi_version || 'latest' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout plugin repository
+      uses: actions/checkout@v4
+      with:
+        path: plugin-source
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          python3 \
+          python3-dev \
+          libpcre3-dev \
+          libssl-dev \
+          zlib1g-dev \
+          libxml2-dev \
+          libyaml-dev \
+          curl \
+          wget
+
+    - name: Install promtool for test validation
+      run: |
+        PROMTOOL_VERSION="2.48.1"
+        wget -q https://github.com/prometheus/prometheus/releases/download/v${PROMTOOL_VERSION}/prometheus-${PROMTOOL_VERSION}.linux-amd64.tar.gz
+        tar xzf prometheus-${PROMTOOL_VERSION}.linux-amd64.tar.gz
+        sudo cp prometheus-${PROMTOOL_VERSION}.linux-amd64/promtool /usr/local/bin/
+        promtool --version
+
+    - name: Clone uWSGI source
+      run: |
+        if [ "${{ env.UWSGI_VERSION }}" = "latest" ]; then
+          echo "Cloning latest uWSGI from master branch"
+          git clone --depth 1 https://github.com/unbit/uwsgi.git uwsgi-source
+        else
+          echo "Cloning uWSGI version ${{ env.UWSGI_VERSION }}"
+          git clone --depth 1 --branch ${{ env.UWSGI_VERSION }} https://github.com/unbit/uwsgi.git uwsgi-source
+        fi
+        cd uwsgi-source
+        echo "uWSGI commit: $(git rev-parse HEAD)"
+        echo "uWSGI describe: $(git describe --tags --always)"
+
+    - name: Copy plugin files to uWSGI plugins directory
+      run: |
+        mkdir -p uwsgi-source/plugins/metrics_prometheus
+        cp plugin-source/plugin.c uwsgi-source/plugins/metrics_prometheus/
+        cp plugin-source/uwsgiplugin.py uwsgi-source/plugins/metrics_prometheus/
+        cp plugin-source/README.md uwsgi-source/plugins/metrics_prometheus/
+        cp plugin-source/PLUGIN_README.md uwsgi-source/plugins/metrics_prometheus/
+        cp -r plugin-source/t uwsgi-source/plugins/metrics_prometheus/
+        echo "Plugin files copied:"
+        ls -la uwsgi-source/plugins/metrics_prometheus/
+
+    - name: Build uWSGI core
+      run: |
+        cd uwsgi-source
+        python3 uwsgiconfig.py --build core
+        echo "uWSGI binary built:"
+        ./uwsgi --version
+
+    - name: Build Prometheus plugin
+      run: |
+        cd uwsgi-source
+        python3 uwsgiconfig.py --plugin plugins/metrics_prometheus
+        echo "Plugin built successfully:"
+        ls -lh metrics_prometheus_plugin.so
+
+    - name: Rename plugin for artifact
+      run: |
+        cd uwsgi-source
+        cp metrics_prometheus_plugin.so metrics_prometheus.so
+        ls -lh metrics_prometheus.so
+
+    - name: Run plugin tests
+      run: |
+        cd uwsgi-source
+        chmod +x plugins/metrics_prometheus/t/test.sh
+        plugins/metrics_prometheus/t/test.sh
+      continue-on-error: false
+
+    - name: Upload compiled plugin
+      uses: actions/upload-artifact@v4
+      with:
+        name: metrics_prometheus-plugin
+        path: uwsgi-source/metrics_prometheus.so
+        if-no-files-found: error
+
+    - name: Display plugin info
+      run: |
+        cd uwsgi-source
+        echo "Plugin size: $(du -h metrics_prometheus.so | cut -f1)"
+        echo "Plugin type: $(file metrics_prometheus.so)"
+        echo "Build artifacts ready for download"
